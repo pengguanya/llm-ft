@@ -15,10 +15,12 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def load_model(model_dir, device):
+def load_model(model_dir):
     model_dir = Path(model_dir)
 
     base_model = None
+    load_in_4bit = False
+
     for config_file, key in [
         ("training_info.json", "base_model"),
         ("adapter_config.json", "base_model_name_or_path"),
@@ -26,9 +28,10 @@ def load_model(model_dir, device):
         path = model_dir / config_file
         if path.exists():
             with open(path) as f:
-                base_model = json.load(f).get(key)
-            if base_model:
-                break
+                data = json.load(f)
+                base_model = base_model or data.get(key)
+                if config_file == "training_info.json":
+                    load_in_4bit = data.get("load_in_4bit", False)
 
     if not base_model:
         raise ValueError(
@@ -36,23 +39,41 @@ def load_model(model_dir, device):
             "Expected training_info.json or adapter_config.json."
         )
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     print(f"Base model: {base_model}")
     print(f"Adapter:    {model_dir}")
+    print(f"4-bit:      {load_in_4bit}")
     print("Loading...")
 
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        dtype=torch.bfloat16 if device == "cuda" else torch.float32,
-    )
-    model = PeftModel.from_pretrained(model, str(model_dir))
-    model = model.to(device)
-    model.eval()
+    load_kwargs = {}
+    if device == "cuda":
+        load_kwargs["device_map"] = "auto"
 
-    return model, tokenizer
+    if load_in_4bit:
+        from transformers import BitsAndBytesConfig
+
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+    else:
+        load_kwargs["torch_dtype"] = torch.bfloat16 if device == "cuda" else torch.float32
+
+    model = AutoModelForCausalLM.from_pretrained(base_model, **load_kwargs)
+    model = PeftModel.from_pretrained(model, str(model_dir))
+
+    if device == "cpu":
+        model = model.to(device)
+
+    model.eval()
+    return model, tokenizer, device
 
 
 def generate_response(model, tokenizer, instruction, device, max_tokens=256, temperature=0.7):
@@ -89,8 +110,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
     args = parser.parse_args()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, tokenizer = load_model(args.model_dir, device)
+    model, tokenizer, device = load_model(args.model_dir)
     print("Ready!\n")
 
     if args.prompt:

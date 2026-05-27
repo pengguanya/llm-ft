@@ -8,6 +8,7 @@ Usage:
     python train_lora.py                                     # defaults
     python train_lora.py --max_samples 200 --epochs 1        # quick test (~2 min)
     python train_lora.py --model Qwen/Qwen2.5-7B-Instruct    # larger model
+    python train_lora.py --load_in_4bit --model Qwen/Qwen2.5-72B-Instruct  # QLoRA
     python train_lora.py --verify                             # dry run
 """
 
@@ -29,7 +30,6 @@ from transformers import (
 
 
 def format_example(instruction, context, response, tokenizer):
-    """Format a single example using the model's chat template or a simple fallback."""
     user_content = instruction
     if context:
         user_content += f"\n\n{context}"
@@ -77,6 +77,16 @@ def main():
     parser.add_argument("--output_dir", default=None, help="Output directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
+        "--load_in_4bit",
+        action="store_true",
+        help="Load model in 4-bit quantization (QLoRA, needs bitsandbytes)",
+    )
+    parser.add_argument(
+        "--gradient_checkpointing",
+        action="store_true",
+        help="Enable gradient checkpointing to reduce memory usage",
+    )
+    parser.add_argument(
         "--verify",
         action="store_true",
         help="Load data + model, print config, exit without training",
@@ -100,6 +110,8 @@ def main():
     print(f"Batch size:  {args.batch_size}")
     print(f"LR:          {args.lr}")
     print(f"Max length:  {args.max_length}")
+    print(f"4-bit:       {args.load_in_4bit}")
+    print(f"Grad ckpt:   {args.gradient_checkpointing}")
     print(f"Output:      {output_dir}")
     if torch.cuda.is_available():
         print(f"GPU:         {torch.cuda.get_device_name(0)}")
@@ -153,10 +165,32 @@ def main():
 
     # -- Model --
     print(f"\n>>> Loading model: {args.model}")
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-    )
+    load_kwargs = {"device_map": "auto"} if torch.cuda.is_available() else {}
+
+    if args.load_in_4bit:
+        from transformers import BitsAndBytesConfig
+
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+    else:
+        load_kwargs["torch_dtype"] = (
+            torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        )
+
+    model = AutoModelForCausalLM.from_pretrained(args.model, **load_kwargs)
+
+    if args.load_in_4bit:
+        from peft import prepare_model_for_kbit_training
+
+        model = prepare_model_for_kbit_training(
+            model, use_gradient_checkpointing=args.gradient_checkpointing
+        )
+    elif args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
 
     lora_config = LoraConfig(
         r=args.lora_r,
@@ -200,6 +234,7 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         bf16=torch.cuda.is_available(),
+        gradient_checkpointing=args.gradient_checkpointing,
         logging_steps=10,
         report_to="none",
         seed=args.seed,
@@ -220,6 +255,8 @@ def main():
             print("\nOUT OF MEMORY! Try:")
             print("  --batch_size 2")
             print("  --max_length 256")
+            print("  --gradient_checkpointing")
+            print("  --load_in_4bit")
             print("  --model Qwen/Qwen2.5-1.5B-Instruct  (smaller model)")
             sys.exit(1)
         raise
@@ -238,6 +275,7 @@ def main():
         "lr": args.lr,
         "train_samples": len(train_data),
         "val_samples": len(val_data),
+        "load_in_4bit": args.load_in_4bit,
     }
     with open(Path(output_dir) / "training_info.json", "w") as f:
         json.dump(info, f, indent=2)

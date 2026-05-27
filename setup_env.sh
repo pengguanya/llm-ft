@@ -1,55 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_NAME="llm-ft"
-
-echo "=== Setting up ${ENV_NAME} environment ==="
-
+VENV_DIR=".venv"
 ARCH=$(uname -m)
+
+echo "=== LLM Fine-Tuning Environment Setup ==="
 echo "Architecture: ${ARCH}"
 
-# ---------- Create isolated environment ----------
-if command -v conda &>/dev/null; then
-    if ! conda env list | grep -q "^${ENV_NAME} "; then
-        echo "Creating conda environment: ${ENV_NAME}"
-        conda create -n "${ENV_NAME}" python=3.11 -y
-    fi
-
-    if [[ "${CONDA_DEFAULT_ENV:-}" != "${ENV_NAME}" ]]; then
-        echo ""
-        echo "Activate the environment first, then re-run:"
-        echo "  conda activate ${ENV_NAME} && bash setup_env.sh"
-        exit 0
-    fi
-else
-    echo "conda not found — using python venv"
-    if [ ! -d ".venv" ]; then
-        python3 -m venv .venv
-    fi
-    # shellcheck disable=SC1091
-    source .venv/bin/activate
-    echo "Activated venv at .venv/"
+if [ "${ARCH}" = "aarch64" ]; then
+    echo ""
+    echo "NOTE: On DGX Spark, Docker is the recommended approach."
+    echo "  See README.md for Docker instructions."
+    echo "  Continuing with bare-metal setup..."
+    echo ""
 fi
+
+# ---------- Virtual environment ----------
+if [ ! -d "${VENV_DIR}" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv "${VENV_DIR}"
+fi
+# shellcheck disable=SC1091
+source "${VENV_DIR}/bin/activate"
 
 # ---------- Install PyTorch ----------
 echo "=== Installing PyTorch ==="
-if python3 -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-    echo "PyTorch with CUDA already installed: $(python3 -c 'import torch; print(torch.__version__)')"
-elif python3 -c "import torch" 2>/dev/null; then
-    TORCH_VER=$(python3 -c "import torch; print(torch.__version__)")
-    echo "PyTorch ${TORCH_VER} found (no CUDA). Keeping as-is — install CUDA build manually if needed."
+if python3 -c "import torch" 2>/dev/null; then
+    echo "PyTorch already installed: $(python3 -c 'import torch; print(torch.__version__)')"
 else
-    echo "Installing PyTorch..."
-    if [ "${ARCH}" = "aarch64" ] || [ "${ARCH}" = "arm64" ]; then
-        echo "  ARM64 detected — trying pip install (NGC container is the safest option)"
-        pip install torch || {
-            echo ""
-            echo "ERROR: PyTorch install failed on ARM64."
-            echo "On DGX Spark, use the NGC PyTorch container instead:"
-            echo "  docker run --gpus all -it -v \$PWD:/workspace nvcr.io/nvidia/pytorch:24.12-py3"
-            echo "  cd /workspace && pip install peft datasets accelerate transformers"
-            exit 1
-        }
+    if [ "${ARCH}" = "aarch64" ]; then
+        pip install torch
     else
         pip install torch --index-url https://download.pytorch.org/whl/cu124
     fi
@@ -57,17 +37,16 @@ fi
 
 # ---------- Install HuggingFace stack ----------
 echo "=== Installing HuggingFace stack ==="
-# Pick transformers version based on PyTorch version
-TORCH_MAJOR_MINOR=$(python3 -c "import torch; v=torch.__version__.split('+')[0].split('.')[:2]; print('.'.join(v))" 2>/dev/null || echo "0.0")
-if python3 -c "
-v = '${TORCH_MAJOR_MINOR}'.split('.')
-exit(0 if int(v[0]) >= 2 and int(v[1]) >= 4 else 1)
-" 2>/dev/null; then
-    echo "  PyTorch >= 2.4 detected — installing latest transformers"
-    pip install --upgrade transformers peft datasets accelerate
+pip install transformers peft datasets accelerate
+
+# ---------- Install bitsandbytes (for 4-bit quantization) ----------
+echo "=== Installing bitsandbytes ==="
+if pip install bitsandbytes; then
+    echo "bitsandbytes installed — 4-bit quantization available (--load_in_4bit)"
 else
-    echo "  PyTorch < 2.4 detected — pinning transformers < 5"
-    pip install --upgrade "transformers>=4.42,<5" peft datasets accelerate
+    echo "WARNING: bitsandbytes install failed."
+    echo "  4-bit quantization (--load_in_4bit) won't be available."
+    echo "  On aarch64, try the Docker workflow instead."
 fi
 
 # ---------- Verify ----------
@@ -81,18 +60,24 @@ if torch.cuda.is_available():
     print(f'GPU:           {torch.cuda.get_device_name(0)}')
     mem = torch.cuda.get_device_properties(0).total_mem / 1e9
     print(f'GPU memory:    {mem:.1f} GB')
-else:
-    print('GPU:           not available (CPU only)')
 
 import transformers, peft, datasets, accelerate
 print(f'Transformers:  {transformers.__version__}')
 print(f'PEFT:          {peft.__version__}')
 print(f'Datasets:      {datasets.__version__}')
 print(f'Accelerate:    {accelerate.__version__}')
+
+try:
+    import bitsandbytes
+    print(f'BnB:           {bitsandbytes.__version__}')
+except ImportError:
+    print('BnB:           not installed')
+
 print()
-print('All dependencies installed!')
+print('Setup complete!')
 "
 
 echo ""
-echo "=== Setup Complete ==="
-echo "Next: python train_lora.py --verify"
+echo "=== Done ==="
+echo "Activate with: source .venv/bin/activate"
+echo "Then run:      python train_lora.py --verify"

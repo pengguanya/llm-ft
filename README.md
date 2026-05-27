@@ -1,35 +1,67 @@
-# LLM LoRA Fine-Tuning on DGX Spark
+# LLM LoRA Fine-Tuning
 
 Fine-tune Qwen2.5 (or any HuggingFace model) with LoRA for instruction following.
 Everything downloads automatically — no manual data setup needed.
 
-## Quick Start
+## Quick Start (x86 / standard GPU)
 
 ```bash
-# 1. Setup environment
 bash setup_env.sh
-conda activate llm-ft
-
-# 2. Verify everything loads (~1 min, downloads model + data)
+source .venv/bin/activate
 python train_lora.py --verify
-
-# 3. Quick test (200 samples, 1 epoch)
-python train_lora.py --max_samples 200 --epochs 1
-
-# 4. Full training (15K examples, 3 epochs)
-python train_lora.py
-
-# 5. Try the model
+python train_lora.py --max_samples 200 --epochs 1    # quick test
 python generate.py --model_dir results/qwen2.5-1.5b-instruct-lora
+```
+
+## DGX Spark (recommended: Docker)
+
+```bash
+# Build
+docker build -t llm-ft .
+
+# Run (interactive)
+docker run -it --gpus all --ipc=host \
+  -v $(pwd):/workspace -w /workspace \
+  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
+  llm-ft
+
+# Inside container:
+python train_lora.py --verify
+python train_lora.py --max_samples 200 --epochs 1
+```
+
+### DGX Spark bare-metal (alternative)
+
+```bash
+bash setup_env.sh
+source .venv/bin/activate
+python train_lora.py --verify
 ```
 
 ## Scaling Up
 
 ```bash
-# Use 7B model (fits easily in 128GB unified memory)
+# 7B model (bf16, fits in 128GB unified memory)
 python train_lora.py --model Qwen/Qwen2.5-7B-Instruct
 
-python generate.py --model_dir results/qwen2.5-7b-instruct-lora
+# 72B model (4-bit quantization, ~40GB memory)
+python train_lora.py --model Qwen/Qwen2.5-72B-Instruct \
+  --load_in_4bit --gradient_checkpointing --batch_size 2
+
+# Generate
+python generate.py --model_dir results/qwen2.5-72b-instruct-lora
+```
+
+## Memory Tips for DGX Spark
+
+The 128GB unified memory is shared between CPU and GPU. If training crashes:
+
+```bash
+# Reduce memory usage (cumulative — combine as needed)
+--batch_size 2              # smaller batches
+--max_length 256            # shorter sequences
+--gradient_checkpointing    # trade compute for memory
+--load_in_4bit              # 4-bit quantization (QLoRA)
 ```
 
 ## Files
@@ -39,8 +71,4 @@ python generate.py --model_dir results/qwen2.5-7b-instruct-lora
 | `setup_env.sh` | Create environment, install dependencies |
 | `train_lora.py` | Fine-tune with LoRA (auto-downloads model + data) |
 | `generate.py` | Interactive chat with fine-tuned model |
-
-## Hardware
-
-Designed for NVIDIA DGX Spark (128GB unified memory).
-Also works on any CUDA GPU or CPU (slower).
+| `Dockerfile` | Container build for DGX Spark |

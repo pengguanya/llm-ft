@@ -18,8 +18,9 @@ dependencies = [
 qlora = ["bitsandbytes"]
 
 [tool.uv]
-# PyTorch CUDA 13.0 index — required for Blackwell GPUs (sm_120/sm_121).
-# Has x86_64 wheels only. On aarch64 (DGX Spark), uv falls back to PyPI.
+# PyTorch CUDA 13.0 index for x86_64 (Blackwell sm_120 support).
+# On aarch64 (DGX Spark), torch is pre-installed in the NGC container
+# or system — setup_env.sh uses --no-install-package torch to skip it.
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"

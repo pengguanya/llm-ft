@@ -3,12 +3,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+ARCH=$(uname -m)
+
 echo "=== LLM Fine-Tuning Environment Setup ==="
-echo "Architecture: $(uname -m)"
+echo "Architecture: ${ARCH}"
 
 # ---------- SSL certs for corporate environments ----------
-# PyTorch cu126 pulls cuda-toolkit from pypi.nvidia.com which may
-# fail behind corporate proxies without the system CA bundle.
 if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
     export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 fi
@@ -18,7 +18,6 @@ if ! command -v uv &>/dev/null; then
     echo ""
     echo ">>> Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    # Add to PATH for current session
     export PATH="$HOME/.local/bin:$PATH"
 fi
 echo "uv: $(uv --version)"
@@ -30,13 +29,27 @@ uv python install
 
 # ---------- Install dependencies ----------
 echo ""
-echo ">>> Installing dependencies (uv sync)..."
-uv sync
+if [ "${ARCH}" = "aarch64" ]; then
+    # DGX Spark: PyTorch is pre-installed in the NGC container or system
+    # with CUDA 13.0 and sm_121 support. No cu130 aarch64 wheels exist
+    # on PyPI, so we skip torch and use the system-installed version.
+    echo ">>> aarch64 detected — using system PyTorch, installing other deps..."
+    uv sync --no-install-package torch
+else
+    # x86_64: Install everything including PyTorch from cu130 index.
+    echo ">>> Installing dependencies (uv sync)..."
+    uv sync
+fi
 
 # ---------- Optional: bitsandbytes for 4-bit quantization ----------
 echo ""
 echo ">>> Installing bitsandbytes (optional, for --load_in_4bit)..."
-if uv sync --extra qlora 2>/dev/null; then
+if [ "${ARCH}" = "aarch64" ]; then
+    UV_EXTRA="uv sync --extra qlora --no-install-package torch"
+else
+    UV_EXTRA="uv sync --extra qlora"
+fi
+if ${UV_EXTRA} 2>/dev/null; then
     echo "  bitsandbytes installed — 4-bit quantization available"
 else
     echo "  WARNING: bitsandbytes install failed (common on aarch64)."

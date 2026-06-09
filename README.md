@@ -36,13 +36,19 @@ Everything downloads automatically from HuggingFace Hub — no manual data or mo
 | GPU | RTX 5060 (8 GB VRAM) | Grace Blackwell GB10 (128 GB unified memory) |
 | CUDA arch | sm_120 | sm_121 |
 | Dependency manager | uv (auto-installs Python + packages) | uv (same) |
-| PyTorch install | CUDA 12.4 wheels (via uv, automatic) | NGC container or PyPI (via uv) |
+| PyTorch install | CUDA 13.0 wheels via uv (cu130 index) | NGC container (pre-built with sm_121) |
 | Nsight Systems | Install separately | Pre-installed in NGC container |
 | Max model size | 1.5B (bf16) or 7B (4-bit) | 72B+ (bf16 with unified memory) |
 
 Both platforms run the **same Python scripts** with the **same `pyproject.toml`**.
 The only prerequisite is [`uv`](https://docs.astral.sh/uv/) — it handles Python
 installation, virtual environment creation, and dependency resolution automatically.
+
+**Note on Blackwell + PyTorch:** Both RTX 5060 (sm_120) and DGX Spark (sm_121) are
+Blackwell GPUs requiring CUDA 13.0+. On x86_64, `uv sync` installs PyTorch from
+the cu130 index. On aarch64 (DGX Spark), no cu130 pip wheels exist — PyTorch must
+come from the NGC container or be pre-installed on the system. The setup script
+handles this automatically.
 
 ---
 
@@ -138,23 +144,27 @@ docker run -it --gpus all --ipc=host \
 ```
 
 The Dockerfile uses the NGC PyTorch base image (`nvcr.io/nvidia/pytorch:25.12-py3`)
-with CUDA 13.1 and Blackwell (sm_121) support, then installs additional
-dependencies via `uv sync`. Nsight Systems is pre-installed in the NGC image.
+which includes PyTorch pre-built with CUDA 13.0 and Blackwell (sm_121) support.
+`uv sync` installs only the non-torch dependencies (transformers, peft, etc.).
+Nsight Systems is pre-installed in the NGC image.
 
 ### 3.2 Option B: Bare-metal
+
+Requires PyTorch to be pre-installed on the system (DGX Spark ships with it).
 
 ```bash
 cd ~/llm-ft
 
-# Same setup script as local PC — installs uv, Python, and all deps
+# Detects aarch64, skips torch install, installs other deps
 bash setup_env.sh
 
 # Run with uv (or activate .venv first)
 uv run python train_lora.py --verify
 ```
 
-`uv` detects the aarch64 architecture and installs the correct PyTorch wheels
-from PyPI automatically.
+On aarch64, the setup script runs `uv sync --no-install-package torch` so it
+uses the system-installed PyTorch (which has CUDA 13.0 + sm_121 support) and
+only installs the other dependencies into the venv.
 
 ### 3.3 Verify
 

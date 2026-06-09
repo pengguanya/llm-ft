@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
 echo "=== LLM Fine-Tuning Environment Setup ==="
 echo "Architecture: $(uname -m)"
 

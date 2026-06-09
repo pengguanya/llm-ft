@@ -205,7 +205,8 @@ def main():
     print(f"Output:      {output_dir}")
     if torch.cuda.is_available():
         print(f"GPU:         {torch.cuda.get_device_name(0)}")
-        mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+        props = torch.cuda.get_device_properties(0)
+        mem = getattr(props, "total_memory", getattr(props, "total_mem", 0)) / 1e9
         print(f"GPU memory:  {mem:.1f} GB")
     else:
         print("GPU:         NOT AVAILABLE (will be slow on CPU)")

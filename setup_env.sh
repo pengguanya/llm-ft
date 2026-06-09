@@ -6,6 +6,13 @@ cd "$(dirname "$0")"
 echo "=== LLM Fine-Tuning Environment Setup ==="
 echo "Architecture: $(uname -m)"
 
+# ---------- SSL certs for corporate environments ----------
+# PyTorch cu126 pulls cuda-toolkit from pypi.nvidia.com which may
+# fail behind corporate proxies without the system CA bundle.
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+fi
+
 # ---------- Install uv if not present ----------
 if ! command -v uv &>/dev/null; then
     echo ""
@@ -46,7 +53,8 @@ print(f'PyTorch:       {torch.__version__}')
 print(f'CUDA:          {torch.cuda.is_available()}')
 if torch.cuda.is_available():
     print(f'GPU:           {torch.cuda.get_device_name(0)}')
-    mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+    p = torch.cuda.get_device_properties(0)
+    mem = getattr(p, 'total_memory', getattr(p, 'total_mem', 0)) / 1e9
     print(f'GPU memory:    {mem:.1f} GB')
 
 import transformers, peft, datasets, accelerate, pytorch_lightning

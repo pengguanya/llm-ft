@@ -15,7 +15,8 @@ python3 -c "
 import torch
 if torch.cuda.is_available():
     print(f'  GPU: {torch.cuda.get_device_name(0)}')
-    mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+    p = torch.cuda.get_device_properties(0)
+    mem = getattr(p, 'total_memory', getattr(p, 'total_mem', 0)) / 1e9
     print(f'  Memory: {mem:.1f} GB')
 else:
     print('  WARNING: No GPU detected — training will be slow')

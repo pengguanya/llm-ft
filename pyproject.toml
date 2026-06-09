@@ -5,8 +5,8 @@ description = "LLM LoRA fine-tuning with GPU profiling for DGX Spark"
 requires-python = ">=3.11,<3.14"
 
 dependencies = [
-    "torch>=2.2",
-    "transformers>=4.40,<5",
+    "torch>=2.7",
+    "transformers",
     "peft",
     "datasets",
     "accelerate",
@@ -18,8 +18,9 @@ dependencies = [
 qlora = ["bitsandbytes"]
 
 [tool.uv]
-# PyTorch CUDA 12.4 index — has x86_64 wheels only.
+# PyTorch CUDA 12.6 index — has x86_64 wheels only.
 # On aarch64 (DGX Spark), uv falls back to PyPI automatically.
+# Requires 2.7+ for Blackwell GPU support (sm_120/sm_121).
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"

@@ -18,9 +18,8 @@ dependencies = [
 qlora = ["bitsandbytes"]
 
 [tool.uv]
-# PyTorch CUDA 12.6 index — has x86_64 wheels only.
-# On aarch64 (DGX Spark), uv falls back to PyPI automatically.
-# Requires 2.7+ for Blackwell GPU support (sm_120/sm_121).
+# PyTorch CUDA 13.0 index — required for Blackwell GPUs (sm_120/sm_121).
+# Has x86_64 wheels only. On aarch64 (DGX Spark), uv falls back to PyPI.
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"

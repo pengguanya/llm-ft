@@ -317,7 +317,7 @@ def main():
         gradient_accumulation_steps=4,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.1,
+        warmup_steps=10,
         weight_decay=0.01,
         eval_strategy="epoch",
         save_strategy="epoch",

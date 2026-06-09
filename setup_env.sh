@@ -4,11 +4,6 @@ set -euo pipefail
 echo "=== LLM Fine-Tuning Environment Setup ==="
 echo "Architecture: $(uname -m)"
 
-# ---------- SSL certs for corporate environments ----------
-if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-fi
-
 # ---------- Install uv if not present ----------
 if ! command -v uv &>/dev/null; then
     echo ""

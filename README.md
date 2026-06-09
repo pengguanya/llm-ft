@@ -73,7 +73,7 @@ uv sync --extra qlora      # optional: adds bitsandbytes for 4-bit quantization
 
 `uv sync` reads `pyproject.toml` and `.python-version`, installs Python 3.11 if
 missing, creates a `.venv`, and resolves all dependencies including PyTorch with
-CUDA 12.6 wheels (automatic for x86_64).
+CUDA 12.4 wheels (automatic for x86_64).
 
 ### 2.3 Verify the environment
 

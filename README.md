@@ -66,7 +66,7 @@ Open a WSL2 Ubuntu terminal:
 
 ```bash
 # Clone the repo
-git clone <your-repo-url> llm-ft
+git clone https://github.com/pengguanya/llm-ft.git
 cd llm-ft
 
 # Option A: Automated setup (installs uv if needed, then syncs dependencies)
@@ -123,17 +123,18 @@ but if you want to test the nsys workflow locally:
 
 ## 3. DGX Spark Setup
 
+SSH into the DGX Spark and clone the repo directly from GitHub:
+
+```bash
+ssh username@<dgx-spark-ip>
+git clone https://github.com/pengguanya/llm-ft.git
+cd llm-ft
+```
+
 ### 3.1 Option A: Docker (recommended)
 
 ```bash
-# Copy the project to DGX Spark
-scp -r llm-ft/ dgx-spark:~/
-
-# SSH into DGX Spark
-ssh dgx-spark
-
 # Build the container (uses NGC base image + uv for dependency install)
-cd ~/llm-ft
 docker build -t llm-ft .
 
 # Run interactive container with GPU access
@@ -141,6 +142,9 @@ docker run -it --gpus all --ipc=host \
   -v $(pwd):/workspace -w /workspace \
   -v $HOME/.cache/huggingface:/root/.cache/huggingface \
   llm-ft
+
+# Inside the container — verify and start training
+python train_lora.py --verify
 ```
 
 The Dockerfile uses the NGC PyTorch base image (`nvcr.io/nvidia/pytorch:25.12-py3`)
@@ -148,13 +152,11 @@ which includes PyTorch pre-built with CUDA 13.0 and Blackwell (sm_121) support.
 `uv sync` installs only the non-torch dependencies (transformers, peft, etc.).
 Nsight Systems is pre-installed in the NGC image.
 
-### 3.2 Option B: Bare-metal
+### 3.2 Option B: Bare-metal (if Docker is not available)
 
 Requires PyTorch to be pre-installed on the system (DGX Spark ships with it).
 
 ```bash
-cd ~/llm-ft
-
 # Detects aarch64, skips torch install, installs other deps
 bash setup_env.sh
 
@@ -169,7 +171,8 @@ only installs the other dependencies into the venv.
 ### 3.3 Verify
 
 ```bash
-uv run python train_lora.py --verify
+python train_lora.py --verify      # inside Docker
+uv run python train_lora.py --verify  # bare-metal
 ```
 
 Expected output:

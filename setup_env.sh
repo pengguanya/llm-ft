@@ -1,58 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VENV_DIR=".venv"
-ARCH=$(uname -m)
-
 echo "=== LLM Fine-Tuning Environment Setup ==="
-echo "Architecture: ${ARCH}"
+echo "Architecture: $(uname -m)"
 
-if [ "${ARCH}" = "aarch64" ]; then
+# ---------- SSL certs for corporate environments ----------
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+fi
+
+# ---------- Install uv if not present ----------
+if ! command -v uv &>/dev/null; then
     echo ""
-    echo "NOTE: On DGX Spark, Docker is the recommended approach."
-    echo "  See README.md for Docker instructions."
-    echo "  Continuing with bare-metal setup..."
-    echo ""
+    echo ">>> Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Add to PATH for current session
+    export PATH="$HOME/.local/bin:$PATH"
 fi
+echo "uv: $(uv --version)"
 
-# ---------- Virtual environment ----------
-if [ ! -d "${VENV_DIR}" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv "${VENV_DIR}"
-fi
-# shellcheck disable=SC1091
-source "${VENV_DIR}/bin/activate"
+# ---------- Install Python (if needed) ----------
+echo ""
+echo ">>> Ensuring Python is available..."
+uv python install
 
-# ---------- Install PyTorch ----------
-echo "=== Installing PyTorch ==="
-if python3 -c "import torch" 2>/dev/null; then
-    echo "PyTorch already installed: $(python3 -c 'import torch; print(torch.__version__)')"
+# ---------- Install dependencies ----------
+echo ""
+echo ">>> Installing dependencies (uv sync)..."
+uv sync
+
+# ---------- Optional: bitsandbytes for 4-bit quantization ----------
+echo ""
+echo ">>> Installing bitsandbytes (optional, for --load_in_4bit)..."
+if uv sync --extra qlora 2>/dev/null; then
+    echo "  bitsandbytes installed — 4-bit quantization available"
 else
-    if [ "${ARCH}" = "aarch64" ]; then
-        pip install torch
-    else
-        pip install torch --index-url https://download.pytorch.org/whl/cu124
-    fi
-fi
-
-# ---------- Install HuggingFace stack ----------
-echo "=== Installing HuggingFace stack ==="
-pip install transformers peft datasets accelerate pytorch-lightning tensorboard
-
-# ---------- Install bitsandbytes (for 4-bit quantization) ----------
-echo "=== Installing bitsandbytes ==="
-if pip install bitsandbytes; then
-    echo "bitsandbytes installed — 4-bit quantization available (--load_in_4bit)"
-else
-    echo "WARNING: bitsandbytes install failed."
+    echo "  WARNING: bitsandbytes install failed (common on aarch64)."
     echo "  4-bit quantization (--load_in_4bit) won't be available."
-    echo "  On aarch64, try the Docker workflow instead."
+    echo "  This is fine — bf16 training works without it."
 fi
 
 # ---------- Verify ----------
 echo ""
 echo "=== Verification ==="
-python3 -c "
+uv run python -c "
 import torch
 print(f'PyTorch:       {torch.__version__}')
 print(f'CUDA:          {torch.cuda.is_available()}')
@@ -61,11 +52,12 @@ if torch.cuda.is_available():
     mem = torch.cuda.get_device_properties(0).total_mem / 1e9
     print(f'GPU memory:    {mem:.1f} GB')
 
-import transformers, peft, datasets, accelerate
+import transformers, peft, datasets, accelerate, pytorch_lightning
 print(f'Transformers:  {transformers.__version__}')
 print(f'PEFT:          {peft.__version__}')
 print(f'Datasets:      {datasets.__version__}')
 print(f'Accelerate:    {accelerate.__version__}')
+print(f'Lightning:     {pytorch_lightning.__version__}')
 
 try:
     import bitsandbytes
@@ -79,5 +71,5 @@ print('Setup complete!')
 
 echo ""
 echo "=== Done ==="
-echo "Activate with: source .venv/bin/activate"
-echo "Then run:      python train_lora.py --verify"
+echo "Run with:  uv run python train_lora.py --verify"
+echo "Or activate the venv:  source .venv/bin/activate"

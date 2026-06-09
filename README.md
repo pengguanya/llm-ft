@@ -35,11 +35,14 @@ Everything downloads automatically from HuggingFace Hub — no manual data or mo
 | Architecture | x86_64 | aarch64 (ARM64) |
 | GPU | RTX 5060 (8 GB VRAM) | Grace Blackwell GB10 (128 GB unified memory) |
 | CUDA arch | sm_120 | sm_121 |
-| PyTorch install | pip (CUDA 12.4 wheels) | NGC container (`nvcr.io/nvidia/pytorch:25.12-py3`) |
+| Dependency manager | uv (auto-installs Python + packages) | uv (same) |
+| PyTorch install | CUDA 12.4 wheels (via uv, automatic) | NGC container or PyPI (via uv) |
 | Nsight Systems | Install separately | Pre-installed in NGC container |
 | Max model size | 1.5B (bf16) or 7B (4-bit) | 72B+ (bf16 with unified memory) |
 
-Both platforms run the **same Python scripts** — only the environment setup differs.
+Both platforms run the **same Python scripts** with the **same `pyproject.toml`**.
+The only prerequisite is [`uv`](https://docs.astral.sh/uv/) — it handles Python
+installation, virtual environment creation, and dependency resolution automatically.
 
 ---
 
@@ -49,7 +52,7 @@ Both platforms run the **same Python scripts** — only the environment setup di
 
 - Windows 11 with WSL2 installed (`wsl --install` in PowerShell)
 - NVIDIA GPU driver for Windows (enables CUDA in WSL2 automatically)
-- Python 3.11+ in WSL2
+- No Python installation needed — `uv` handles it
 
 ### 2.2 Install the environment
 
@@ -60,20 +63,26 @@ Open a WSL2 Ubuntu terminal:
 git clone <your-repo-url> llm-ft
 cd llm-ft
 
-# Run the automated setup (creates .venv, installs PyTorch + all dependencies)
+# Option A: Automated setup (installs uv if needed, then syncs dependencies)
 bash setup_env.sh
 
-# Activate the virtual environment
-source .venv/bin/activate
+# Option B: Manual (if you already have uv)
+uv sync                    # creates .venv, installs Python 3.11 + all deps
+uv sync --extra qlora      # optional: adds bitsandbytes for 4-bit quantization
 ```
 
-The setup script installs: PyTorch (CUDA 12.4), transformers, peft, datasets,
-accelerate, pytorch-lightning, tensorboard, and bitsandbytes.
+`uv sync` reads `pyproject.toml` and `.python-version`, installs Python 3.11 if
+missing, creates a `.venv`, and resolves all dependencies including PyTorch with
+CUDA 12.6 wheels (automatic for x86_64).
 
 ### 2.3 Verify the environment
 
 ```bash
-# Quick check — verifies imports, CUDA, GPU detection
+# Using uv run (no need to activate .venv)
+uv run python train_lora.py --verify
+
+# Or activate and use python directly
+source .venv/bin/activate
 python train_lora.py --verify
 ```
 
@@ -117,7 +126,7 @@ scp -r llm-ft/ dgx-spark:~/
 # SSH into DGX Spark
 ssh dgx-spark
 
-# Build the container
+# Build the container (uses NGC base image + uv for dependency install)
 cd ~/llm-ft
 docker build -t llm-ft .
 
@@ -128,21 +137,29 @@ docker run -it --gpus all --ipc=host \
   llm-ft
 ```
 
-The NGC base image (`nvcr.io/nvidia/pytorch:25.12-py3`) includes PyTorch with
-CUDA 13.1 and Blackwell (sm_121) support. Nsight Systems is pre-installed.
+The Dockerfile uses the NGC PyTorch base image (`nvcr.io/nvidia/pytorch:25.12-py3`)
+with CUDA 13.1 and Blackwell (sm_121) support, then installs additional
+dependencies via `uv sync`. Nsight Systems is pre-installed in the NGC image.
 
 ### 3.2 Option B: Bare-metal
 
 ```bash
 cd ~/llm-ft
+
+# Same setup script as local PC — installs uv, Python, and all deps
 bash setup_env.sh
-source .venv/bin/activate
+
+# Run with uv (or activate .venv first)
+uv run python train_lora.py --verify
 ```
+
+`uv` detects the aarch64 architecture and installs the correct PyTorch wheels
+from PyPI automatically.
 
 ### 3.3 Verify
 
 ```bash
-python train_lora.py --verify
+uv run python train_lora.py --verify
 ```
 
 Expected output:
@@ -634,10 +651,8 @@ ls profiler_logs/lightning/ # should have .json files
 ### Lightning import error
 
 ```bash
-pip install pytorch-lightning
+uv sync    # re-installs all dependencies from pyproject.toml
 ```
-
-Or re-run `bash setup_env.sh` which installs all dependencies.
 
 ### Model download fails
 
@@ -654,7 +669,9 @@ export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 | File | Purpose |
 |------|---------|
-| `setup_env.sh` | Create `.venv`, install PyTorch + all dependencies |
+| `pyproject.toml` | Project dependencies and uv configuration |
+| `.python-version` | Pins Python 3.11 for uv |
+| `setup_env.sh` | Installs uv (if needed) and runs `uv sync` |
 | `train_lora.py` | Fine-tune with LoRA using HuggingFace Trainer (supports `--profile`, `--profile_nsys`) |
 | `train_lora_lightning.py` | Fine-tune with LoRA using Lightning Trainer (supports `--profile`, `--profile_nsys`) |
 | `generate.py` | Interactive chat / single-prompt inference with fine-tuned model |

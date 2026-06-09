@@ -10,8 +10,10 @@ RUN pip install --no-cache-dir \
     peft \
     datasets \
     accelerate \
-    bitsandbytes
+    bitsandbytes \
+    pytorch-lightning \
+    tensorboard
 
-COPY train_lora.py generate.py ./
+COPY train_lora.py train_lora_lightning.py generate.py profile_nsys.sh preflight.sh ./
 
 CMD ["bash"]

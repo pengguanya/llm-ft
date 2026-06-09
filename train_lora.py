@@ -25,8 +25,82 @@ from transformers import (
     AutoTokenizer,
     DataCollatorForLanguageModeling,
     Trainer,
+    TrainerCallback,
     TrainingArguments,
 )
+
+
+class ProfilerCallback(TrainerCallback):
+    """Wraps torch.profiler to capture GPU kernel timing and memory during training."""
+
+    def __init__(self, output_dir="profiler_logs/torch", active_steps=3):
+        self.output_dir = output_dir
+        self.active_steps = active_steps
+        self.prof = None
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if torch.cuda.is_available():
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        self.prof = torch.profiler.profile(
+            activities=activities,
+            schedule=torch.profiler.schedule(
+                wait=1, warmup=1, active=self.active_steps, repeat=1
+            ),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(self.output_dir),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=False,
+        )
+        self.prof.__enter__()
+        print(f"\n>>> torch.profiler enabled — traces will be saved to {self.output_dir}/")
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.prof is not None:
+            self.prof.step()
+
+    def on_train_end(self, args, state, control, **kwargs):
+        if self.prof is not None:
+            self.prof.__exit__(None, None, None)
+            sort_key = (
+                "self_cuda_time_total" if torch.cuda.is_available() else "self_cpu_time_total"
+            )
+            print("\n" + "=" * 60)
+            print(f"torch.profiler — Top 20 operations by {sort_key}")
+            print("=" * 60)
+            print(self.prof.key_averages().table(sort_by=sort_key, row_limit=20))
+            print(f"\nTraces saved to: {self.output_dir}/")
+            print("View with: tensorboard --logdir=profiler_logs")
+            print("=" * 60)
+
+
+class NsysCallback(TrainerCallback):
+    """Emits NVTX markers for Nsight Systems profiling."""
+
+    def __init__(self):
+        self.enabled = torch.cuda.is_available()
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        if not self.enabled:
+            print("\n>>> NVTX markers skipped — no CUDA device available")
+            return
+        torch.cuda.nvtx.range_push("training")
+        print("\n>>> NVTX markers enabled — run with nsys profile for GPU timeline")
+
+    def on_step_begin(self, args, state, control, **kwargs):
+        if self.enabled:
+            torch.cuda.nvtx.range_push(f"step_{state.global_step}")
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.enabled:
+            torch.cuda.nvtx.range_pop()  # step
+
+    def on_train_end(self, args, state, control, **kwargs):
+        if not self.enabled:
+            return
+        torch.cuda.nvtx.range_pop()  # training
+        print("\n>>> NVTX markers complete — view in Nsight Systems UI")
 
 
 def format_example(instruction, context, response, tokenizer):
@@ -90,6 +164,22 @@ def main():
         "--verify",
         action="store_true",
         help="Load data + model, print config, exit without training",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Enable torch.profiler (GPU kernel timing + memory)",
+    )
+    parser.add_argument(
+        "--profile_steps",
+        type=int,
+        default=3,
+        help="Number of steps to actively profile (default: 3)",
+    )
+    parser.add_argument(
+        "--profile_nsys",
+        action="store_true",
+        help="Emit NVTX markers for Nsight Systems profiling",
     )
     args = parser.parse_args()
 
@@ -240,12 +330,23 @@ def main():
         seed=args.seed,
     )
 
+    callbacks = []
+    if args.profile:
+        callbacks.append(
+            ProfilerCallback(
+                output_dir="profiler_logs/torch", active_steps=args.profile_steps
+            )
+        )
+    if args.profile_nsys:
+        callbacks.append(NsysCallback())
+
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_data,
         eval_dataset=val_data,
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        callbacks=callbacks,
     )
 
     try:

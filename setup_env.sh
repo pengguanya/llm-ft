@@ -37,7 +37,7 @@ fi
 
 # ---------- Install HuggingFace stack ----------
 echo "=== Installing HuggingFace stack ==="
-pip install transformers peft datasets accelerate
+pip install transformers peft datasets accelerate pytorch-lightning tensorboard
 
 # ---------- Install bitsandbytes (for 4-bit quantization) ----------
 echo "=== Installing bitsandbytes ==="

@@ -138,12 +138,9 @@ cd llm-ft
 docker build -t llm-ft .
 
 # 2. Pre-download HuggingFace assets (model + dataset) on the host.
-#    Downloads can be slow or stuck inside the container due to
-#    network/auth restrictions. This caches everything locally first.
-python3 -m venv /tmp/hf-dl
-/tmp/hf-dl/bin/pip install datasets transformers huggingface_hub
-/tmp/hf-dl/bin/python prefetch.py            # downloads default model + dataset
-# /tmp/hf-dl/bin/python prefetch.py --model Qwen/Qwen2.5-7B-Instruct  # larger model
+#    Self-bootstrapping — creates a temp venv and installs deps automatically.
+python3 prefetch.py                                        # default model + dataset
+# python3 prefetch.py --model Qwen/Qwen2.5-7B-Instruct    # larger model
 
 # 3. Run interactive container with GPU access
 docker run -it --gpus all --ipc=host \
@@ -165,10 +162,11 @@ Nsight Systems is pre-installed in the NGC image.
 > `pip install <pkg>` directly. Avoid `uv` inside NGC containers — it
 > has SSL cert issues with NVIDIA's package indexes on aarch64.
 
-> **Pre-downloading assets:** The `prefetch.py` script downloads the model,
-> tokenizer, and dataset into `.hf_cache/` on the host. This directory is
-> bind-mounted into the container, so everything loads from cache instantly.
-> Use `--model` and `--dataset` flags to pre-download different models.
+> **Pre-downloading assets:** `prefetch.py` is self-bootstrapping — just run
+> `python3 prefetch.py` and it creates a temp venv, installs deps, and
+> downloads the model, tokenizer, and dataset into `.hf_cache/`. This
+> directory is bind-mounted into the container so everything loads from
+> cache. Use `--model` and `--dataset` flags for different models.
 
 ### 3.2 Option B: Bare-metal (if Docker is not available)
 
@@ -691,10 +689,8 @@ Downloads can hang inside NGC containers due to network or auth restrictions.
 Use `prefetch.py` on the host to pre-download everything:
 
 ```bash
-# On the host (outside the container)
-python3 -m venv /tmp/hf-dl
-/tmp/hf-dl/bin/pip install datasets transformers huggingface_hub
-/tmp/hf-dl/bin/python prefetch.py --model Qwen/Qwen2.5-7B-Instruct
+# On the host (outside the container) — self-bootstrapping, no manual venv needed
+python3 prefetch.py --model Qwen/Qwen2.5-7B-Instruct
 ```
 
 Then mount `.hf_cache/` into the container (see Docker instructions above).

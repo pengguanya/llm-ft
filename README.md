@@ -149,8 +149,13 @@ python train_lora.py --verify
 
 The Dockerfile uses the NGC PyTorch base image (`nvcr.io/nvidia/pytorch:25.12-py3`)
 which includes PyTorch pre-built with CUDA 13.0 and Blackwell (sm_121) support.
-`uv sync` installs only the non-torch dependencies (transformers, peft, etc.).
+`pip install` adds the non-torch dependencies (transformers, peft, etc.)
+directly into the system Python alongside NGC's pre-built torch.
 Nsight Systems is pre-installed in the NGC image.
+
+> **Installing extra packages inside the container:** Use
+> `pip install <pkg>` directly. Avoid `uv` inside NGC containers — it
+> has SSL cert issues with NVIDIA's package indexes on aarch64.
 
 ### 3.2 Option B: Bare-metal (if Docker is not available)
 

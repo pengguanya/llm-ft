@@ -134,16 +134,24 @@ cd llm-ft
 ### 3.1 Option A: Docker (recommended)
 
 ```bash
-# Build the container (uses NGC base image + uv for dependency install)
+# 1. Build the container (uses NGC base image + pip for dependency install)
 docker build -t llm-ft .
 
-# Run interactive container with GPU access
+# 2. Pre-download HuggingFace assets (model + dataset) on the host.
+#    Downloads can be slow or stuck inside the container due to
+#    network/auth restrictions. This caches everything locally first.
+python3 -m venv /tmp/hf-dl
+/tmp/hf-dl/bin/pip install datasets transformers huggingface_hub
+/tmp/hf-dl/bin/python prefetch.py            # downloads default model + dataset
+# /tmp/hf-dl/bin/python prefetch.py --model Qwen/Qwen2.5-7B-Instruct  # larger model
+
+# 3. Run interactive container with GPU access
 docker run -it --gpus all --ipc=host \
   -v $(pwd):/workspace -w /workspace \
-  -v $HOME/.cache/huggingface:/root/.cache/huggingface \
+  -v $(pwd)/.hf_cache:/root/.cache/huggingface \
   llm-ft
 
-# Inside the container — verify and start training
+# 4. Inside the container — verify and start training
 python train_lora.py --verify
 ```
 
@@ -156,6 +164,11 @@ Nsight Systems is pre-installed in the NGC image.
 > **Installing extra packages inside the container:** Use
 > `pip install <pkg>` directly. Avoid `uv` inside NGC containers — it
 > has SSL cert issues with NVIDIA's package indexes on aarch64.
+
+> **Pre-downloading assets:** The `prefetch.py` script downloads the model,
+> tokenizer, and dataset into `.hf_cache/` on the host. This directory is
+> bind-mounted into the container, so everything loads from cache instantly.
+> Use `--model` and `--dataset` flags to pre-download different models.
 
 ### 3.2 Option B: Bare-metal (if Docker is not available)
 
@@ -672,9 +685,21 @@ ls profiler_logs/lightning/ # should have .json files
 uv sync    # re-installs all dependencies from pyproject.toml
 ```
 
-### Model download fails
+### Model or dataset download stuck/slow inside container
 
-HuggingFace Hub is accessed via HTTPS. If behind a corporate proxy:
+Downloads can hang inside NGC containers due to network or auth restrictions.
+Use `prefetch.py` on the host to pre-download everything:
+
+```bash
+# On the host (outside the container)
+python3 -m venv /tmp/hf-dl
+/tmp/hf-dl/bin/pip install datasets transformers huggingface_hub
+/tmp/hf-dl/bin/python prefetch.py --model Qwen/Qwen2.5-7B-Instruct
+```
+
+Then mount `.hf_cache/` into the container (see Docker instructions above).
+
+If downloads fail on the host too (e.g. corporate proxy):
 
 ```bash
 export HF_HUB_ENABLE_HF_TRANSFER=0
@@ -694,6 +719,7 @@ export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 | `train_lora_lightning.py` | Fine-tune with LoRA using Lightning Trainer (supports `--profile`, `--profile_nsys`) |
 | `generate.py` | Interactive chat / single-prompt inference with fine-tuned model |
 | `profile_nsys.sh` | Nsight Systems wrapper — runs nsys with proper flags |
+| `prefetch.py` | Pre-download HF models and datasets before running in Docker |
 | `preflight.sh` | Pre-flight validation — tests full pipeline with minimal data |
 | `run_demo.sh` | End-to-end demo script (quick test → full training → generation) |
 | `Dockerfile` | NGC-based container for DGX Spark (aarch64, Blackwell support) |

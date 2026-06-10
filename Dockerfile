@@ -9,7 +9,8 @@ WORKDIR /workspace
 # pip avoids uv's cert/venv issues inside NGC containers.
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir transformers peft datasets accelerate pytorch-lightning tensorboard && \
-    pip install --no-cache-dir bitsandbytes || true
+    pip install --no-cache-dir bitsandbytes || true && \
+    pip uninstall -y torchao || true
 
 # Copy scripts
 COPY train_lora.py train_lora_lightning.py generate.py \

@@ -268,7 +268,7 @@ def main():
             bnb_4bit_use_double_quant=True,
         )
     else:
-        load_kwargs["torch_dtype"] = (
+        load_kwargs["dtype"] = (
             torch.bfloat16 if torch.cuda.is_available() else torch.float32
         )
 

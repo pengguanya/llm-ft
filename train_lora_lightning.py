@@ -175,7 +175,7 @@ def main():
     # Lightning manages device placement — load to CPU, let Trainer move to GPU.
     print(f"\n>>> Loading model: {args.model}")
     load_kwargs = {
-        "torch_dtype": torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        "dtype": torch.bfloat16 if torch.cuda.is_available() else torch.float32,
     }
     model = AutoModelForCausalLM.from_pretrained(args.model, **load_kwargs)
 
